@@ -1,16 +1,13 @@
 ---
-title: Hello World!
-description: Nothing to see here
+title: Impressum
 ---
-<html>
-<head>
-    <title>{{page.title}}</title>
-    <link rel="stylesheet" href="main.css"/>
-</head>
-<body>
-{{>main}}
-{{>youtube}}
-<script src="app.js"></script>
-</body>
-</html>
+{{#extend "layout" title="Main Page"}}
+    {{#content "body"}}
+        <div class="content">
+            {{>main}}
+            {{>youtube}}
+            {{>footer}}
+        </div>
+    {{/content}}
+{{/extend}}
 

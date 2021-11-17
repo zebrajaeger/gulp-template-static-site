@@ -8,7 +8,8 @@ const plumber = require("gulp-plumber")
 const rename = require('gulp-rename');
 const ignore = require('gulp-ignore');
 const data = require('gulp-data');
-
+const {production} = require('gulp-environments');
+const gulpif = require('gulp-if');
 const browserSync = require('browser-sync').create();
 
 const beep = require('beepbeep');
@@ -16,15 +17,23 @@ const beep = require('beepbeep');
 
 // js
 const babel = require("gulp-babel");
+const uglifyjs = require('gulp-uglify/composer')(require('uglify-js'), console)
 
 // css
 const sass = require('gulp-sass')(require('sass'));
 const postcss = require('gulp-postcss')
 const autoprefixer = require('autoprefixer')
+const cleanCSS = require('gulp-clean-css')
 
 // html
 const frontMatter = require('gulp-front-matter');
 const hb = require('gulp-hb');
+const layouts = require('handlebars-layouts');
+
+// ---
+const debug = false
+
+// ---
 
 function clean(cb) {
     if (fs.existsSync('dist')) {
@@ -35,29 +44,55 @@ function clean(cb) {
 
 exports.js = clean
 
-function js() {
-    return src("src/**/*.js")
+function js(srcPattern, targetFileName) {
+    return src(srcPattern)
         .pipe(plumber())
         .pipe(sourcemaps.init())
         .pipe(babel())
-        .pipe(concat("app.js"))
+        .pipe(concat(targetFileName))
+        .pipe(gulpif(production(), uglifyjs()))
         .pipe(sourcemaps.write("."))
         .pipe(dest("dist"));
 }
 
-exports.js = js
+function jsApp() {
+    return js("src/js/**/*.js", "app.js")
+}
 
-function css() {
-    return src('src/css/**/*.{scss,sass}')
+function jsVendor() {
+    return js("src-vendor/js/**/*.js", "vendor.js")
+}
+
+exports.jsApp = jsApp
+exports.jsVendor = jsVendor
+
+
+function css(srcPattern) {
+    return src(srcPattern)
         .pipe(plumber())
+        .pipe(rename(p => {
+            if (p.basename.startsWith('_')) {
+                p.basename = p.basename.substring(1);
+            }
+        }))
         .pipe(sourcemaps.init())
         .pipe(sass({includePaths: []}).on('error', sass.logError))
         .pipe(postcss([autoprefixer()]))
+        .pipe(gulpif(production(), cleanCSS()))
         .pipe(sourcemaps.write('.'))
         .pipe(dest('dist'))
 }
 
-exports.css = css
+function cssApp() {
+    return css('src/css/**/_*.{css,scss,sass}')
+}
+
+function cssVendor() {
+    return css('src-vendor/css/**/_*.{css,scss,sass}')
+}
+
+exports.css = cssApp
+exports.css = cssVendor
 
 function img() {
     return src('src/img/**/*.{jpg,jpeg,png,svg}')
@@ -76,10 +111,10 @@ function html() {
         .pipe(data((file) => {
             return require(file.path.replace('.html', '.json'));
         }))
-        .pipe(hb({debug: true})
+        .pipe(hb({debug})
             .partials('src/**/*.hbs')
             .helpers('src/helpers/**/*.js')
-            .helpers(require('handlebars-layouts'))
+            .helpers(layouts)
             .decorators('src/decorators/**/*.js')
             .data('src/data/**/*.{js,json}')
             .data({
@@ -94,16 +129,27 @@ function html() {
 
 exports.html = html
 
-function reload(cb){
+function reload(cb) {
     browserSync.reload();
     beep();
     cb();
 }
 
+exports.reload = reload
+
 function watcher(cb) {
-    watch('src/css/**/*.{scss,sass}', series(css, reload), cb)
-    watch('src/js/**/*.{js}', series(js, reload), cb)
+    // css
+    watch('src/css/**/*.{css,scss,sass}', series(cssApp, reload), cb)
+    watch('src-vendor/css/**/*.{css,scss,sass}', series(cssVendor, reload), cb)
+
+    // js
+    watch('src/js/**/*.js', series(jsApp, reload), cb)
+    watch('src-vendor/js/**/*.js', series(jsVendor, reload), cb)
+
+    // assets
     watch('src/img/**/*.{jpg,jpeg,png,svg}', series(img, reload), cb)
+
+    // html
     watch('src/**/*.{hbs,html}', series(html, reload), cb)
 
     browserSync.init({
@@ -114,5 +160,7 @@ function watcher(cb) {
 }
 
 exports.watch = watcher
-exports.default = series(clean, parallel(js, css, img, html), watcher)
-// exports.default = series(clean, parallel(js, css, img, html))
+exports.serve = series(clean, parallel(jsApp, jsVendor, cssApp, cssVendor, img, html), watcher)
+exports.build = series(clean, parallel(jsApp, jsVendor, cssApp, cssVendor, img, html))
+
+exports.default = exports.build
